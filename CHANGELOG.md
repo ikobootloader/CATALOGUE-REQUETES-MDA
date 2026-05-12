@@ -24,3 +24,12 @@
 - Correctif critique: en reconnexion, remplacement de `DataManager.initializeFirstTime(...)` par `DataManager.loadAll()` dans `verifyPassword()`, pour eviter tout reset du catalogue et du parametrage.
 - Correctif UX session: reactivation explicite du bouton verrouillage (`lock-btn.disabled=false`) dans `showLockScreen()` et `showFirstSetup()` apres deconnexion/retour ecran lock.
 - Documentation: mise a jour de `README.md`.
+
+## 2026-05-12
+- Correctif UX paramétrage: ajout de l'édition des entrées déjà sauvegardées (univers, domaines, statuts, fréquences, responsables) sans suppression/récréation.
+- Refactor métier: création de `js/catalogue-config-domain.js` pour centraliser validation de renommage, détection de doublons et propagation des libellés dans le catalogue.
+- Orchestrateur/UI: ajout de boutons `Modifier` dans les listes de paramétrage et sauvegarde cohérente `config + data` lors des renommages.
+- Feature domaines: ajout d'une catégorisation par groupe (`domain.group`) au paramétrage des domaines fonctionnels.
+- Sidebar: affichage des domaines regroupés par catégorie dans la section "Par domaine".
+- Rétrocompatibilité: migration douce des configurations existantes via `DataManager.migrateConfig()` (ajout automatique du groupe `Sans groupe` sans perte de données).
+- Import XLSX: les domaines importés reçoivent un groupe par défaut puis passent par la migration de configuration.

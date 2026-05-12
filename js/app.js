@@ -512,6 +512,7 @@ var DataManager = {
       } else {
         this.config = this.getDefaultConfig();
       }
+      this.config = this.migrateConfig(this.config);
 
       this.isLocked = false;
     } catch (error) {
@@ -693,13 +694,13 @@ var DataManager = {
         {name:'RH_Prod', desc:'Univers Ressources Humaines'}
       ],
       domaines: [
-        {name:'LCD / CNSA', icon:'📊', bg:'#E8EDF5'},
-        {name:'Droits et notifications', icon:'📋', bg:'#FEF0E6'},
-        {name:'Orientations', icon:'🔀', bg:'#EAF3DE'},
-        {name:'Flux et délais', icon:'⏱', bg:'#E6F1FB'},
-        {name:'Pilotage interne', icon:'📈', bg:'#FAEEDA'},
-        {name:'Ressources humaines', icon:'👥', bg:'#FBEAF0'},
-        {name:'Autre', icon:'📁', bg:'#F1EFE8'}
+        {name:'LCD / CNSA', icon:'📊', bg:'#E8EDF5', group:'Reporting'},
+        {name:'Droits et notifications', icon:'📋', bg:'#FEF0E6', group:'Metier'},
+        {name:'Orientations', icon:'🔀', bg:'#EAF3DE', group:'Metier'},
+        {name:'Flux et délais', icon:'⏱', bg:'#E6F1FB', group:'Metier'},
+        {name:'Pilotage interne', icon:'📈', bg:'#FAEEDA', group:'Pilotage'},
+        {name:'Ressources humaines', icon:'👥', bg:'#FBEAF0', group:'Support'},
+        {name:'Autre', icon:'📁', bg:'#F1EFE8', group:'Sans groupe'}
       ],
       statuts: [
         {name:'Actif', color:'#3B6D11', bg:'#EAF3DE', desc:'Requête validée, en production'},
@@ -717,6 +718,20 @@ var DataManager = {
         {name:'DRH', service:'Ressources Humaines'}
       ]
     };
+  },
+
+  /**
+   * Migration douce et retrocompatible de configuration.
+   * Garantit les nouveaux champs sans perte de donnees existantes.
+   */
+  migrateConfig(config) {
+    const base = config || this.getDefaultConfig();
+    if (typeof ConfigDomain !== 'undefined' && ConfigDomain.ensureDomainGroups) {
+      ConfigDomain.ensureDomainGroups(base);
+    } else if (Array.isArray(base.domaines)) {
+      base.domaines = base.domaines.map(d => ({ ...d, group: (d && d.group) ? d.group : 'Sans groupe' }));
+    }
+    return base;
   }
 };
 
@@ -1136,13 +1151,22 @@ var ViewRenderer = {
     // Rendre la navigation par domaine
     const domainNav = document.getElementById('domain-nav');
     if (domainNav && DataManager.config.domaines) {
-      domainNav.innerHTML = DataManager.config.domaines.map(domain => {
-        const count = DataManager.data.filter(r => r.domaine === domain.name).length;
+      const grouped = ConfigDomain.groupDomainsByCategory(DataManager.config.domaines);
+      const groupNames = Object.keys(grouped);
+      domainNav.innerHTML = groupNames.map(groupName => {
+        const domainButtons = grouped[groupName].map(domain => {
+          const count = DataManager.data.filter(r => r.domaine === domain.name).length;
+          return `
+            <button class="nav-item" data-filter-key="domaine:${Utils.escapeHtml(domain.name)}">
+              ${domain.icon} ${Utils.escapeHtml(domain.name)}
+              <span class="nav-count">${count}</span>
+            </button>`;
+        }).join('');
         return `
-          <button class="nav-item" data-filter-key="domaine:${Utils.escapeHtml(domain.name)}">
-            ${domain.icon} ${Utils.escapeHtml(domain.name)}
-            <span class="nav-count">${count}</span>
-          </button>`;
+          <div class="nav-subgroup">
+            <div class="nav-subgroup-title">${Utils.escapeHtml(groupName)}</div>
+            ${domainButtons}
+          </div>`;
       }).join('');
 
       // Attacher les événements pour les domaines
@@ -1468,6 +1492,9 @@ var ConfigManager = {
   deleteButton(onclick) {
     return `<button class="btn-icon del" onclick="${onclick}" title="Supprimer">✕</button>`;
   },
+  editButton(onclick) {
+    return `<button class="btn-icon" onclick="${onclick}" title="Modifier">✎</button>`;
+  },
 
   // ═══════════════ UNIVERS ═══════════════
   renderUniverses() {
@@ -1485,6 +1512,7 @@ var ConfigManager = {
             ${u.desc ? `<div class="s-row-sub">${Utils.escapeHtml(u.desc)}</div>` : ''}
           </div>
           <span class="s-badge">${count} requête${count !== 1 ? 's' : ''}</span>
+          ${this.editButton(`ConfigManager.editUniverse(${i})`)}
           ${this.deleteButton(`ConfigManager.deleteUniverse(${i})`)}
         </div>`;
     }).join('') || '<div class="s-empty">Aucun univers configuré.</div>';
@@ -1523,6 +1551,34 @@ var ConfigManager = {
     FilterEngine.populateFilters();
     UIComponents.showToast('Univers supprimé.', 'success');
   },
+  async editUniverse(index) {
+    const item = DataManager.config.univers[index];
+    if (!item) return;
+    const oldName = item.name;
+    const newNameRaw = prompt('Modifier le nom de l\'univers :', oldName || '');
+    if (newNameRaw === null) return;
+    const newName = ConfigDomain.normalizeText(newNameRaw);
+    const newDescRaw = prompt('Modifier la description (optionnelle) :', item.desc || '');
+    if (newDescRaw === null) return;
+    const newDesc = ConfigDomain.normalizeText(newDescRaw);
+    if (!newName) {
+      UIComponents.showToast('Nom obligatoire.', 'error');
+      return;
+    }
+    if (ConfigDomain.isDuplicateName(DataManager.config.univers, newName, index)) {
+      UIComponents.showToast('Cet univers existe déjà.', 'error');
+      return;
+    }
+    item.name = newName;
+    item.desc = newDesc;
+    ConfigDomain.renameInData(DataManager.data, 'univers', oldName, newName);
+    await DataManager.saveData();
+    await DataManager.saveConfig();
+    this.renderUniverses();
+    FilterEngine.populateFilters();
+    if (window.AppController) window.AppController.refresh();
+    UIComponents.showToast('Univers modifié.', 'success');
+  },
 
   // ═══════════════ DOMAINES ═══════════════
   renderDomains() {
@@ -1545,8 +1601,10 @@ var ConfigManager = {
           </div>
           <div class="s-row-main">
             <div class="s-row-label">${Utils.escapeHtml(d.name)}</div>
+            <div class="s-row-sub">Groupe : ${Utils.escapeHtml((d.group || 'Sans groupe'))}</div>
           </div>
           <span class="s-badge">${count} requête${count !== 1 ? 's' : ''}</span>
+          ${this.editButton(`ConfigManager.editDomain(${i})`)}
           ${count === 0 ? this.deleteButton(`ConfigManager.deleteDomain(${i})`) : '<span class="s-used">utilisé</span>'}
         </div>`;
     }).join('') || '<div class="s-empty">Aucun domaine configuré.</div>';
@@ -1555,8 +1613,10 @@ var ConfigManager = {
   addDomain() {
     const iconInput = document.getElementById('di-icon');
     const nameInput = document.getElementById('di-name');
+    const groupInput = document.getElementById('di-group');
     const icon = iconInput.value.trim() || '📁';
     const name = nameInput.value.trim();
+    const group = ConfigDomain.normalizeDomainGroup(groupInput?.value);
 
     if (!name) {
       UIComponents.showToast('Nom obligatoire.', 'error');
@@ -1568,7 +1628,7 @@ var ConfigManager = {
       return;
     }
 
-    DataManager.config.domaines.push({ name, icon, bg: '#F1EFE8' });
+    DataManager.config.domaines.push({ name, icon, bg: '#F1EFE8', group });
     DataManager.saveConfig();
     this.renderDomains();
 
@@ -1578,6 +1638,7 @@ var ConfigManager = {
 
     iconInput.value = '';
     nameInput.value = '';
+    if (groupInput) groupInput.value = '';
     UIComponents.showToast('Domaine ajouté.', 'success');
   },
 
@@ -1591,6 +1652,33 @@ var ConfigManager = {
     }
 
     UIComponents.showToast('Domaine supprimé.', 'success');
+  },
+  async editDomain(index) {
+    const item = DataManager.config.domaines[index];
+    if (!item) return;
+    const oldName = item.name;
+    const newNameRaw = prompt('Modifier le nom du domaine :', oldName || '');
+    if (newNameRaw === null) return;
+    const newName = ConfigDomain.normalizeText(newNameRaw);
+    const newGroupRaw = prompt('Modifier le groupe du domaine :', item.group || 'Sans groupe');
+    if (newGroupRaw === null) return;
+    const newGroup = ConfigDomain.normalizeDomainGroup(newGroupRaw);
+    if (!newName) {
+      UIComponents.showToast('Nom obligatoire.', 'error');
+      return;
+    }
+    if (ConfigDomain.isDuplicateName(DataManager.config.domaines, newName, index)) {
+      UIComponents.showToast('Ce domaine existe déjà.', 'error');
+      return;
+    }
+    item.name = newName;
+    item.group = newGroup;
+    ConfigDomain.renameInData(DataManager.data, 'domaine', oldName, newName);
+    await DataManager.saveData();
+    await DataManager.saveConfig();
+    this.renderDomains();
+    if (window.AppController) window.AppController.refresh();
+    UIComponents.showToast('Domaine modifié.', 'success');
   },
 
   // ═══════════════ STATUTS ═══════════════
@@ -1609,6 +1697,7 @@ var ConfigManager = {
             ${s.desc ? `<div class="s-row-sub">${Utils.escapeHtml(s.desc)}</div>` : ''}
           </div>
           <span class="s-badge">${count} requête${count !== 1 ? 's' : ''}</span>
+          ${this.editButton(`ConfigManager.editStatus(${i})`)}
           ${count === 0 ? this.deleteButton(`ConfigManager.deleteStatus(${i})`) : '<span class="s-used">utilisé</span>'}
         </div>`;
     }).join('') || '<div class="s-empty">Aucun statut configuré.</div>';
@@ -1656,6 +1745,33 @@ var ConfigManager = {
 
     UIComponents.showToast('Statut supprimé.', 'success');
   },
+  async editStatus(index) {
+    const item = DataManager.config.statuts[index];
+    if (!item) return;
+    const oldName = item.name;
+    const newNameRaw = prompt('Modifier le nom du statut :', oldName || '');
+    if (newNameRaw === null) return;
+    const newName = ConfigDomain.normalizeText(newNameRaw);
+    const newDescRaw = prompt('Modifier la description (optionnelle) :', item.desc || '');
+    if (newDescRaw === null) return;
+    const newDesc = ConfigDomain.normalizeText(newDescRaw);
+    if (!newName) {
+      UIComponents.showToast('Nom obligatoire.', 'error');
+      return;
+    }
+    if (ConfigDomain.isDuplicateName(DataManager.config.statuts, newName, index)) {
+      UIComponents.showToast('Ce statut existe déjà.', 'error');
+      return;
+    }
+    item.name = newName;
+    item.desc = newDesc;
+    ConfigDomain.renameInData(DataManager.data, 'statut', oldName, newName);
+    await DataManager.saveData();
+    await DataManager.saveConfig();
+    this.renderStatuses();
+    if (window.AppController) window.AppController.refresh();
+    UIComponents.showToast('Statut modifié.', 'success');
+  },
 
   // ═══════════════ FRÉQUENCES ═══════════════
   renderFrequencies() {
@@ -1670,6 +1786,7 @@ var ConfigManager = {
           <span class="s-row-icon">🔄</span>
           <div class="s-row-label">${Utils.escapeHtml(f)}</div>
           <span class="s-badge">${count} requête${count !== 1 ? 's' : ''}</span>
+          ${this.editButton(`ConfigManager.editFrequency(${i})`)}
           ${count === 0 ? this.deleteButton(`ConfigManager.deleteFrequency(${i})`) : '<span class="s-used">utilisée</span>'}
         </div>`;
     }).join('') || '<div class="s-empty">Aucune fréquence.</div>';
@@ -1705,6 +1822,29 @@ var ConfigManager = {
     FilterEngine.populateFilters();
     UIComponents.showToast('Fréquence supprimée.', 'success');
   },
+  async editFrequency(index) {
+    const current = DataManager.config.frequences[index];
+    if (!current) return;
+    const newNameRaw = prompt('Modifier la fréquence :', current);
+    if (newNameRaw === null) return;
+    const newName = ConfigDomain.normalizeText(newNameRaw);
+    if (!newName) {
+      UIComponents.showToast('Nom obligatoire.', 'error');
+      return;
+    }
+    if (ConfigDomain.isDuplicateName(DataManager.config.frequences, newName, index)) {
+      UIComponents.showToast('Déjà existante.', 'error');
+      return;
+    }
+    DataManager.config.frequences[index] = newName;
+    ConfigDomain.renameInData(DataManager.data, 'freq', current, newName);
+    await DataManager.saveData();
+    await DataManager.saveConfig();
+    this.renderFrequencies();
+    FilterEngine.populateFilters();
+    if (window.AppController) window.AppController.refresh();
+    UIComponents.showToast('Fréquence modifiée.', 'success');
+  },
 
   // ═══════════════ RESPONSABLES ═══════════════
   renderResponsibles() {
@@ -1722,6 +1862,7 @@ var ConfigManager = {
             ${r.service ? `<div class="s-row-sub">${Utils.escapeHtml(r.service)}</div>` : ''}
           </div>
           <span class="s-badge">${count} requête${count !== 1 ? 's' : ''}</span>
+          ${this.editButton(`ConfigManager.editResponsible(${i})`)}
           ${this.deleteButton(`ConfigManager.deleteResponsible(${i})`)}
         </div>`;
     }).join('') || '<div class="s-empty">Aucun responsable.</div>';
@@ -1752,6 +1893,33 @@ var ConfigManager = {
     DataManager.saveConfig();
     this.renderResponsibles();
     UIComponents.showToast('Responsable supprimé.', 'success');
+  },
+  async editResponsible(index) {
+    const item = DataManager.config.responsables[index];
+    if (!item) return;
+    const oldName = item.name;
+    const newNameRaw = prompt('Modifier le nom du responsable :', oldName || '');
+    if (newNameRaw === null) return;
+    const newName = ConfigDomain.normalizeText(newNameRaw);
+    const newServiceRaw = prompt('Modifier le service (optionnel) :', item.service || '');
+    if (newServiceRaw === null) return;
+    const newService = ConfigDomain.normalizeText(newServiceRaw);
+    if (!newName) {
+      UIComponents.showToast('Nom obligatoire.', 'error');
+      return;
+    }
+    if (ConfigDomain.isDuplicateName(DataManager.config.responsables, newName, index)) {
+      UIComponents.showToast('Ce responsable existe déjà.', 'error');
+      return;
+    }
+    item.name = newName;
+    item.service = newService;
+    ConfigDomain.renameInData(DataManager.data, 'proprio', oldName, newName);
+    await DataManager.saveData();
+    await DataManager.saveConfig();
+    this.renderResponsibles();
+    if (window.AppController) window.AppController.refresh();
+    UIComponents.showToast('Responsable modifié.', 'success');
   },
 
   // ═══════════════ NUMÉROTATION ═══════════════
@@ -3242,12 +3410,12 @@ function handleImport(e) {
             const extra = row[2] || '';
             
             if (type === 'Univers') newConfig.univers.push({ name: val });
-            if (type === 'Domaine') newConfig.domaines.push({ name: val, icon: extra });
+            if (type === 'Domaine') newConfig.domaines.push({ name: val, icon: extra, group: 'Sans groupe' });
             if (type === 'Statut') newConfig.statuts.push({ name: val, color: extra });
             if (type === 'Fréquence') newConfig.frequences.push({ name: val });
             if (type === 'Responsable') newConfig.responsables.push({ name: val, email: extra });
           }
-          DataManager.config = { ...DataManager.config, ...newConfig };
+          DataManager.config = DataManager.migrateConfig({ ...DataManager.config, ...newConfig });
         }
 
         // Lecture Catalogue

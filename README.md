@@ -15,6 +15,7 @@ Application web locale pour cataloguer et suivre les requetes BusinessObjects.
 - `js/catalogue-selection-domain.js` (domaine metier de selection multiple)
 - `js/catalogue-filter-domain.js` (domaine metier de filtres/recherche)
 - `js/catalogue-filter-options-domain.js` (domaine metier des options de filtres)
+- `js/catalogue-config-domain.js` (domaine metier d'edition du parametrage)
 - `js/app.js` (orchestrateur UI et logique applicative)
 
 ## Demarrage

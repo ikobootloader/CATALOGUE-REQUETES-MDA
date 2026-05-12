@@ -144,6 +144,8 @@ body{font-family:var(--font);background:var(--gray-50);color:var(--gray-800);min
 .nav-item .nav-count{margin-left:auto;font-size:11px;background:var(--gray-100);color:var(--gray-600);padding:1px 7px;border-radius:20px;font-weight:500}
 .nav-item.active .nav-count{background:var(--orange);color:white}
 .nav-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.nav-subgroup{margin-bottom:8px}
+.nav-subgroup-title{font-size:10px;font-weight:600;letter-spacing:.6px;color:var(--gray-400);text-transform:uppercase;padding:4px 8px 6px}
 .main{display:flex;flex-direction:column;overflow:hidden;min-height:0;height:100%}
 .toolbar{background:white;border-bottom:0.5px solid var(--gray-200);padding:12px 20px;display:flex;gap:10px;align-items:center;flex-shrink:0}
 .search-box{flex:1;position:relative;max-width:360px}
